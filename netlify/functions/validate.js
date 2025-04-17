@@ -3,9 +3,11 @@ const jwt = require('jsonwebtoken');
 
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(
-      JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-    ),
+    credential: admin.credential.cert({
+      projectId: serviceAccount.p,
+      privateKey: serviceAccount.k.replace(/\\n/g, '\n'),
+      clientEmail: serviceAccount.e
+    }),
     databaseURL: process.env.FIREBASE_DATABASE_URL
   });
 }
