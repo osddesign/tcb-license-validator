@@ -1,40 +1,70 @@
-const { Firestore } = require("@google-cloud/firestore");
+const admin = require('firebase-admin');
+const jwt = require('jsonwebtoken');
 
-const firestore = new Firestore({
-  projectId: process.env.GOOGLE_PROJECT_ID,
-  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
-});
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(
+      JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+    ),
+    databaseURL: process.env.FIREBASE_DATABASE_URL
+  });
+}
 
-exports.handler = async (event) => {
-  console.log("Received event:", event);
+const db = admin.firestore();
+
+exports.handler = async (event, context) => {
+  // Gestion CORS
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST'
+      }
+    };
+  }
 
   try {
-    const { key } = JSON.parse(event.body);
-    console.log("Validating key:", key);
-
-    const doc = await firestore.collection("licenses").doc(key).get();
-
-    if (!doc.exists) {
-      return { statusCode: 404, body: JSON.stringify({ valid: false }) };
+    const { licenseKey, token } = JSON.parse(event.body);
+    
+    // Étape 5-6 : Validation JWT
+    if (token) {
+      const decoded = jwt.verify(token, process.env.LV_JWT_SECRET);
+      return respond({ valid: true, data: decoded });
     }
 
-    const data = doc.data();
-    console.log("Firestore data:", data);
+    // Étape 2 : Vérification Firestore
+    const doc = await db.collection('licenses').doc(licenseKey).get();
+    if (!doc.exists) throw new Error('Licence non trouvée');
+    
+    const { status } = doc.data();
+    if (status !== 'active') throw new Error('Licence inactive');
 
-    const valid =
-      data.status === "active" &&
-      new Date(data.valid_until) > new Date() &&
-      data.activations < data.max_activations;
+    // Étape 3 : Génération JWT
+    const jwtToken = jwt.sign(
+      {
+        license: licenseKey,
+        exp: Math.floor(Date.now() / 1000) + (30 * 24 * 3600) // 30 jours
+      },
+      process.env.LV_JWT_SECRET
+    );
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        valid,
-        activations_left: data.max_activations - data.activations,
-      }),
-    };
+    // Étape 4 : Réponse
+    return respond({ jwt: jwtToken });
+
   } catch (error) {
-    console.error("Error:", error);
-    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+    return respond({ error: error.message }, 401);
   }
 };
+
+function respond(data, statusCode = 200) {
+  return {
+    statusCode,
+    headers: { 
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*' 
+    },
+    body: JSON.stringify(data)
+  };
+}
