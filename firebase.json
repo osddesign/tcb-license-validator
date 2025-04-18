@@ -1,0 +1,25 @@
+{
+  "firestore": {
+    "rules": "firebase/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
+  },
+  "functions": {
+    "source": "firebase/functions",
+    "predeploy": "npm --prefix \"$RESOURCE_DIR\" run build"
+  },
+  "emulators": {
+    "firestore": {
+      "port": 18080,
+      "host": "localhost"
+    },
+    "functions": {
+      "port": 15001,
+      "host": "localhost"
+    },
+    "ui": {
+      "enabled": true,
+      "host": "localhost",
+      "port": 14000
+    }
+  }
+}
