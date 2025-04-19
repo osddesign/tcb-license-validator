@@ -44,3 +44,6 @@ yarn-error.log*
 firebase/functions/.env
 firebase/functions/node_modules/
 firebase-debug.log
+
+# Tous les fichiers de log
+*.log

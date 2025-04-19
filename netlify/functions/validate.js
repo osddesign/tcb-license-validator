@@ -1,72 +1,26 @@
-const admin = require('firebase-admin');
-const jwt = require('jsonwebtoken');
+// netlify/functions/validate.js
+const axios = require('axios');
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: serviceAccount.p,
-      privateKey: serviceAccount.k.replace(/\\n/g, '\n'),
-      clientEmail: serviceAccount.e
-    }),
-    databaseURL: process.env.FIREBASE_DATABASE_URL
-  });
-}
+exports.handler = async (event) => {
+    try {
+        const { action, licenseKey, token } = JSON.parse(event.body);
+        const FIREBASE_FUNCTION_URL = process.env.FIREBASE_FUNCTION_URL;
 
-const db = admin.firestore();
+        // Appel à Firebase Function
+        const response = await axios.post(FIREBASE_FUNCTION_URL, { licenseKey });
 
-exports.handler = async (event, context) => {
-  // Gestion CORS
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST'
-      }
-    };
-  }
-
-  try {
-    const { licenseKey, token } = JSON.parse(event.body);
-    
-    // Étape 5-6 : Validation JWT
-    if (token) {
-      const decoded = jwt.verify(token, process.env.LV_JWT_SECRET);
-      return respond({ valid: true, data: decoded });
+        return {
+            statusCode: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify(response.data)
+        };
+    } catch (error) {
+        return {
+            statusCode: error.response?.status || 500,
+            body: JSON.stringify({ error: error.message })
+        };
     }
-
-    // Étape 2 : Vérification Firestore
-    const doc = await db.collection('licenses').doc(licenseKey).get();
-    if (!doc.exists) throw new Error('Licence non trouvée');
-    
-    const { status } = doc.data();
-    if (status !== 'active') throw new Error('Licence inactive');
-
-    // Étape 3 : Génération JWT
-    const jwtToken = jwt.sign(
-      {
-        license: licenseKey,
-        exp: Math.floor(Date.now() / 1000) + (30 * 24 * 3600) // 30 jours
-      },
-      process.env.LV_JWT_SECRET
-    );
-
-    // Étape 4 : Réponse
-    return respond({ jwt: jwtToken });
-
-  } catch (error) {
-    return respond({ error: error.message }, 401);
-  }
 };
-
-function respond(data, statusCode = 200) {
-  return {
-    statusCode,
-    headers: { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*' 
-    },
-    body: JSON.stringify(data)
-  };
-}

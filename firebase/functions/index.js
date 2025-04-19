@@ -1,36 +1,63 @@
+// firebase/functions/index.js
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
-const { initializeApp } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
+const { onRequest } = require('firebase-functions/v2/https');
+const admin = require('firebase-admin');
+const jwt = require('jsonwebtoken');
 
-initializeApp();
-const db = getFirestore();
+admin.initializeApp();
 
-exports.processWebhook = onDocumentCreated('license_webhooks/{docId}', async (event) => {
+// Helper pour générer JWT
+const generateJWT = (licenseKey) => {
+    return jwt.sign(
+        {
+            license: licenseKey,
+            exp: Math.floor(Date.now() / 1000) + 2592000 // 30 jours
+        },
+        process.env.LV_JWT_SECRET
+    );
+};
+
+// Endpoint HTTP pour validation licence
+exports.validateLicense = onRequest(async (req, res) => {
+    try {
+        const { licenseKey } = req.body;
+
+        if (!licenseKey) {
+            return res.status(400).json({ error: 'licenseKey requis' });
+        }
+
+        const doc = await admin.firestore().collection('licenses').doc(licenseKey).get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ error: 'Licence non trouvée' });
+        }
+
+        const token = generateJWT(licenseKey);
+
+        res.json({
+            jwt: token,
+            license: licenseKey,
+            status: doc.data().status,
+            expiresIn: '30d'
+        });
+    } catch (error) {
+        console.error('Erreur:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Webhook de désactivation
+exports.processDeactivation = onDocumentCreated('license_webhooks/{docId}', async (event) => {
     const snap = event.data;
-    if (!snap) {
-        console.log('No data associated with the event');
-        return;
-    }
+    const { authKey, licenseKey } = snap.data();
 
-    const { authKey, licenseKey, action } = snap.data();
-
-    // Vérification sécurité
     if (authKey !== process.env.WEBHOOK_SECRET) {
-        console.error('Tentative non autorisée');
-        await snap.ref.delete();
-        return;
+        console.log('Tentative non autorisée');
+        return snap.ref.delete();
     }
 
-    if (action === 'deactivate') {
-        const licenseRef = db.collection('licenses').doc(licenseKey);
-        await licenseRef.update({
-            status: 'inactive',
-            deactivatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+    const licenseRef = admin.firestore().collection('licenses').doc(licenseKey);
+    await licenseRef.update({ status: 'inactive' });
 
-        await snap.ref.update({
-            processed: true,
-            processedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-    }
+    return snap.ref.update({ processed: true });
 });
