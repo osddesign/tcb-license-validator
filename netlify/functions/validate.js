@@ -6,6 +6,9 @@ exports.handler = async (event) => {
         const { action, licenseKey, token } = JSON.parse(event.body);
         const FIREBASE_FUNCTION_URL = process.env.FIREBASE_FUNCTION_URL;
 
+        console.log('License Key:', licenseKey);
+        console.log('FIREBASE_FUNCTION_URL:', FIREBASE_FUNCTION_URL);
+
         // Appel à Firebase Function
         const response = await axios.post(FIREBASE_FUNCTION_URL, { licenseKey });
 
